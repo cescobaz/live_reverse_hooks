@@ -34,7 +34,7 @@ defmodule LiveReverseHooks.MixProject do
   end
 
   defp description do
-    "Ready-made LiveReverse hooks for Phoenix LiveView: URL params and search."
+    "A collection of ready-made LiveReverse hooks for common Phoenix LiveView tasks."
   end
 
   defp package do
