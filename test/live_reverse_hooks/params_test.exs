@@ -61,7 +61,7 @@ defmodule LiveReverseHooks.ParamsTest do
     assert Params.build(socket) == %{"project_id" => "g1", "q" => "x"}
 
     assert Params.build(socket, project_id: nil, page: "2", extra: 1) ==
-             %{"q" => "x", "page" => "2", extra: 1}
+             %{"q" => "x", "page" => "2"}
 
     assert Params.build(socket, %{project_id: "project", query: "y"}) ==
              %{"project_id" => "project", "q" => "y"}

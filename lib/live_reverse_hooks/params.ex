@@ -26,18 +26,17 @@ defmodule LiveReverseHooks.Params do
   Returns the bound params, read from the assigns and keyed by param name.
 
   `overrides` (map or keyword) is keyed by assign key and wins over the
-  assigns; keys that are not bound pass through as given. `:uri` bindings
-  are skipped and `nil` values are dropped, so `key: nil` removes a param.
+  assigns; keys that are not bound are ignored. `:uri` bindings are skipped
+  and `nil` values are dropped, so `key: nil` removes a param.
   """
   def build(socket, overrides \\ %{}) do
-    bindings = socket |> LiveReverse.args(__MODULE__) |> Enum.concat()
+    overrides = Map.new(overrides)
 
-    for {key, param} <- bindings, param != :uri, into: %{} do
-      {key, socket.assigns[key]}
+    for {key, param} <- Enum.concat(LiveReverse.args(socket, __MODULE__)), param != :uri do
+      {param, Map.get(overrides, key, socket.assigns[key])}
     end
-    |> Map.merge(Map.new(overrides))
-    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
-    |> Map.new(fn {key, value} -> {Keyword.get(bindings, key, key), value} end)
+    |> Enum.reject(fn {_param, value} -> is_nil(value) end)
+    |> Map.new()
   end
 
   @doc """
