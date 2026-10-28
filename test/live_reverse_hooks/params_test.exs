@@ -73,6 +73,17 @@ defmodule LiveReverseHooks.ParamsTest do
              %{"project_id" => "g1"}
   end
 
+  test "path params are assigned but not built, query params are both" do
+    socket =
+      socket()
+      |> mount(project_id: {:path, "id"}, page: {:query, "page"}, q: "q")
+      |> run_handle_params(%{"id" => "g1", "page" => "2", "q" => ""}, "http://x/g1?page=2&q=")
+
+    assert %{project_id: "g1", page: "2", q: nil} = socket.assigns
+    assert Params.build(socket) == %{"page" => "2"}
+    assert Params.build(socket, q: "x") |> Params.build_to(socket) == "/g1?page=2&q=x"
+  end
+
   test "build_to sets the query of the URI, or the one stored by handle_params" do
     assert Params.build_to(%{"q" => "y", "page" => nil}, "http://x/a?q=x&page=2") == "/a?q=y"
     assert Params.build_to(%{}, "http://x/a?q=x") == "/a"
@@ -104,6 +115,10 @@ defmodule LiveReverseHooks.ParamsTest do
 
   test "rejects bad bindings" do
     assert_raise ArgumentError, ~r/bad param binding/, fn -> mount(socket(), project_id: :id) end
+
+    assert_raise ArgumentError, ~r/bad param binding/, fn ->
+      mount(socket(), project_id: {:body, "id"})
+    end
 
     assert_raise ArgumentError, ~r/non-empty keyword list/, fn ->
       Params.on_mount(["project_id"], %{}, %{}, socket())

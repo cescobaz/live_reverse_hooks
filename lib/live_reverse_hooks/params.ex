@@ -2,17 +2,18 @@ defmodule LiveReverseHooks.Params do
   @moduledoc ~S"""
   Assigns URL params to the socket on every `handle_params`.
 
-  Each binding maps an assign key to a param name, or to `:uri` for the
-  full URI. Empty strings are assigned as `nil`.
+  Each binding maps an assign key to a param: `{:path, name}` for a path
+  param, `{:query, name}` or just `name` for a query param, or `:uri` for
+  the full URI. Empty strings are assigned as `nil`.
 
-      on_mount {LiveReverseHooks.Params, uri: :uri, project_id: "project_id"}
+      on_mount {LiveReverseHooks.Params, uri: :uri, project_id: {:path, "id"}, page: "page"}
 
   It can be listed more than once: every entry's bindings are applied by
   one hook, and binding the same assign key twice raises.
   `LiveReverse.detach/3` with an entry's bindings unbinds them; the hook
   goes with the last ones.
 
-  `build/3` turns the bound assigns back into URL params, e.g. to patch:
+  `build/3` turns the bound assigns back into query params, e.g. to patch:
 
       push_patch(socket, to: ~p"/projects/#{id}?#{Params.build(socket, search: "x")}")
   """
@@ -23,11 +24,12 @@ defmodule LiveReverseHooks.Params do
   @uri_key {__MODULE__, :uri}
 
   @doc """
-  Returns the bound params, read from the assigns and keyed by param name.
+  Returns the bound query params, read from the assigns and keyed by param
+  name.
 
   `overrides` (map or keyword) is keyed by assign key and wins over the
-  assigns; keys that are not bound are ignored. `:uri` bindings are skipped
-  and `nil` values are dropped, so `key: nil` removes a param.
+  assigns; keys that are not bound are ignored. Path and `:uri` bindings
+  are skipped and `nil` values are dropped, so `key: nil` removes a param.
 
   ## Options
 
@@ -38,7 +40,8 @@ defmodule LiveReverseHooks.Params do
     overrides = Map.new(overrides)
 
     params =
-      for {key, param} <- Enum.concat(LiveReverse.args(socket, __MODULE__)), param != :uri do
+      for {key, binding} <- Enum.concat(LiveReverse.args(socket, __MODULE__)),
+          {:query, param} <- [source(binding)] do
         {param, Map.get(overrides, key, socket.assigns[key])}
       end
 
@@ -109,7 +112,7 @@ defmodule LiveReverseHooks.Params do
         socket ->
           case binding do
             {key, :uri} -> assign(socket, key, uri)
-            {key, param} -> assign(socket, key, blank_to_nil(Map.get(params, param)))
+            {key, binding} -> assign(socket, key, param_value(params, source(binding)))
           end
       end
 
@@ -135,11 +138,22 @@ defmodule LiveReverseHooks.Params do
             "expected a non-empty keyword list of param bindings, got: #{inspect(bindings)}"
     end
 
-    for {key, param} <- bindings, param != :uri and not is_binary(param) do
+    for {key, binding} <- bindings, source(binding) == :error do
       raise ArgumentError,
-            "bad param binding #{inspect({key, param})}, expected a param name or :uri"
+            "bad param binding #{inspect({key, binding})}, " <>
+              "expected a param name, {:path | :query, name} or :uri"
     end
   end
+
+  defp source(:uri), do: :uri
+  defp source(name) when is_binary(name), do: {:query, name}
+
+  defp source({source, name}) when source in [:path, :query] and is_binary(name),
+    do: {source, name}
+
+  defp source(_binding), do: :error
+
+  defp param_value(params, {_source, name}), do: blank_to_nil(Map.get(params, name))
 
   defp blank_to_nil(""), do: nil
   defp blank_to_nil(value), do: value

@@ -10,28 +10,33 @@ Phoenix LiveView. Plug them in with `on_mount`.
   `build_to/3`.
 
   ```elixir
-  on_mount {LiveReverseHooks.Params, uri: :uri, project_id: "project_id"}
+  on_mount {LiveReverseHooks.Params, uri: :uri, project_id: {:path, "id"}, page: "page"}
   ```
 
-  `build/3` turns the bound assigns back into params, with overrides keyed
+  A binding is `{:path, name}` for a path param, `{:query, name}` or just
+  `name` for a query param, or `:uri` for the full URI.
+
+  `build/3` turns the bound assigns back into query params (path and `:uri`
+  bindings are skipped), with overrides keyed
   by assign key (`nil` removes a param). `build_to/3` sets them as the
   query of the current URI and returns the path, so the URI only carries
   the bound params:
 
   ```elixir
-  on_mount {LiveReverseHooks.Params, project_id: "project_id", page: "page"}
+  # live "/projects/:id", ProjectLive
+  on_mount {LiveReverseHooks.Params, project_id: {:path, "id"}, page: "page"}
 
   def handle_event("next_page", _params, socket) do
     page = String.to_integer(socket.assigns.page || "1") + 1
 
-    # => "/projects/g1?page=2&project_id=g1"
+    # => "/projects/g1?page=2"
     to = socket |> Params.build(page: page) |> Params.build_to(socket)
 
     {:noreply, push_patch(socket, to: to)}
   end
 
   def handle_event("first_page", _params, socket) do
-    # => "/projects/g1?project_id=g1"
+    # => "/projects/g1"
     to = socket |> Params.build(page: nil) |> Params.build_to(socket)
 
     {:noreply, push_patch(socket, to: to)}
@@ -42,7 +47,7 @@ Phoenix LiveView. Plug them in with `on_mount`.
   instead, and `keep_nil: true` lets `build/3` remove params from it:
 
   ```elixir
-  # => "/projects/g1?other=1&project_id=g1", from "/projects/g1?other=1&page=2"
+  # => "/projects/g1?other=1", from "/projects/g1?other=1&page=2"
   socket |> Params.build([page: nil], keep_nil: true) |> Params.build_to(socket, mode: :merge)
   ```
 
