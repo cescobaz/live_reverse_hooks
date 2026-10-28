@@ -58,7 +58,7 @@ defmodule LiveReverseHooks.Search do
       socket =
         socket
         |> assign_search(opts[:key], search)
-        |> push_patch(to: Params.build_to(%{opts[:param] => search}, socket))
+        |> push_patch(to: Params.build_to(%{opts[:param] => search}, socket, mode: :merge))
 
       {:halt, socket}
     else

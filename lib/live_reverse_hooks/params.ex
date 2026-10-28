@@ -12,7 +12,7 @@ defmodule LiveReverseHooks.Params do
   `LiveReverse.detach/3` with an entry's bindings unbinds them; the hook
   goes with the last ones.
 
-  `build/2` turns the bound assigns back into URL params, e.g. to patch:
+  `build/3` turns the bound assigns back into URL params, e.g. to patch:
 
       push_patch(socket, to: ~p"/projects/#{id}?#{Params.build(socket, search: "x")}")
   """
@@ -28,47 +28,68 @@ defmodule LiveReverseHooks.Params do
   `overrides` (map or keyword) is keyed by assign key and wins over the
   assigns; keys that are not bound are ignored. `:uri` bindings are skipped
   and `nil` values are dropped, so `key: nil` removes a param.
+
+  ## Options
+
+    * `:keep_nil` - keeps the `nil` values, e.g. for `build_to/3` with
+      `mode: :merge` to remove them from the URI. Defaults to `false`.
   """
-  def build(socket, overrides \\ %{}) do
+  def build(socket, overrides \\ %{}, opts \\ []) do
     overrides = Map.new(overrides)
 
-    for {key, param} <- Enum.concat(LiveReverse.args(socket, __MODULE__)), param != :uri do
-      {param, Map.get(overrides, key, socket.assigns[key])}
+    params =
+      for {key, param} <- Enum.concat(LiveReverse.args(socket, __MODULE__)), param != :uri do
+        {param, Map.get(overrides, key, socket.assigns[key])}
+      end
+
+    if opts[:keep_nil] do
+      Map.new(params)
+    else
+      params |> Enum.reject(fn {_param, value} -> is_nil(value) end) |> Map.new()
     end
-    |> Enum.reject(fn {_param, value} -> is_nil(value) end)
-    |> Map.new()
   end
 
   @doc """
-  Returns the path of `uri` with `query` merged into its query string.
+  Returns the path of `uri` with `query` as its query string. Params with
+  a `nil` value are left out.
 
   With a socket, `uri` is the one stored by the last `handle_params` (see
   `put_uri/2`):
 
-      push_patch(socket, to: Params.build_to(%{"search" => "x"}, socket))
+      push_patch(socket, to: Params.build_to(Params.build(socket, search: "x"), socket))
+
+  ## Options
+
+    * `:mode` - `:replace` drops the query of `uri`, `:merge` merges `query`
+      into it, a `nil` value removing that param. Defaults to `:replace`.
   """
-  def build_to(query, %Socket{} = socket) do
+  def build_to(query, uri, opts \\ [])
+
+  def build_to(query, %Socket{} = socket, opts) do
     case socket.private[@uri_key] do
       nil -> raise ArgumentError, "no URI stored in the socket, see put_uri/2"
-      uri -> build_to(query, uri)
+      uri -> build_to(query, uri, opts)
     end
   end
 
-  def build_to(%{} = query, uri) when is_binary(uri) do
+  def build_to(%{} = query, uri, opts) when is_binary(uri) do
     uri = URI.parse(uri)
 
     query =
-      case uri.query do
-        nil -> query
-        current -> URI.decode_query(current) |> Map.merge(query)
+      case {Keyword.get(opts, :mode, :replace), uri.query} do
+        {:merge, current} when is_binary(current) -> URI.decode_query(current) |> Map.merge(query)
+        {mode, _current} when mode in [:merge, :replace] -> query
       end
-      |> URI.encode_query()
+      |> Enum.reject(fn {_param, value} -> is_nil(value) end)
 
-    uri.path <> "?" <> query
+    case query do
+      [] -> uri.path
+      query -> uri.path <> "?" <> URI.encode_query(query)
+    end
   end
 
   @doc """
-  Stores `uri` in the socket for `build_to/2`. The hook calls it on every
+  Stores `uri` in the socket for `build_to/3`. The hook calls it on every
   `handle_params`; other hooks can too.
   """
   def put_uri(socket, uri), do: put_private(socket, @uri_key, uri)

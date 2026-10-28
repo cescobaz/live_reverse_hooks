@@ -66,20 +66,30 @@ defmodule LiveReverseHooks.ParamsTest do
     assert Params.build(socket, %{project_id: "project", query: "y"}) ==
              %{"project_id" => "project", "q" => "y"}
 
+    assert Params.build(socket, [project_id: nil], keep_nil: true) ==
+             %{"project_id" => nil, "q" => "x", "page" => nil}
+
     assert Params.build(socket |> LiveReverse.detach(Params, query: "q", page: "page")) ==
              %{"project_id" => "g1"}
   end
 
-  test "build_to merges the query into the URI, or the one stored by handle_params" do
-    assert Params.build_to(%{"q" => "y"}, "http://x/a?q=x&page=2") == "/a?page=2&q=y"
-    assert Params.build_to(%{"q" => "y"}, "http://x/a") == "/a?q=y"
+  test "build_to sets the query of the URI, or the one stored by handle_params" do
+    assert Params.build_to(%{"q" => "y", "page" => nil}, "http://x/a?q=x&page=2") == "/a?q=y"
+    assert Params.build_to(%{}, "http://x/a?q=x") == "/a"
+
+    assert Params.build_to(%{"q" => "y"}, "http://x/a?q=x&page=2", mode: :merge) ==
+             "/a?page=2&q=y"
+
+    assert Params.build_to(%{"page" => nil}, "http://x/a?q=x&page=2", mode: :merge) == "/a?q=x"
+    assert Params.build_to(%{"q" => "y"}, "http://x/a", mode: :merge) == "/a?q=y"
 
     socket =
       socket()
       |> mount(project_id: "project_id")
       |> run_handle_params(%{}, "http://x/g1?page=2")
 
-    assert Params.build_to(%{"q" => "y"}, socket) == "/g1?page=2&q=y"
+    assert Params.build_to(%{"q" => "y"}, socket) == "/g1?q=y"
+    assert Params.build_to(%{"q" => "y"}, socket, mode: :merge) == "/g1?page=2&q=y"
 
     assert_raise ArgumentError, ~r/no URI stored/, fn -> Params.build_to(%{}, socket()) end
   end
