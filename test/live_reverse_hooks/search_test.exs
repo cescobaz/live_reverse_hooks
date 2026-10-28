@@ -120,4 +120,11 @@ defmodule LiveReverseHooks.SearchTest do
     assert Search.search?(%{search: "x"})
     assert Search.search?(%{q: "x"}, :q)
   end
+
+  test "get_search" do
+    assert Search.get_search(%{search: "x"}) == "x"
+    assert Search.get_search(%{search: nil}) == nil
+    assert Search.get_search(%{q: "x"}, :q) == "x"
+    assert Search.get_search(%Phoenix.LiveView.Socket{assigns: %{search: "x"}}) == "x"
+  end
 end

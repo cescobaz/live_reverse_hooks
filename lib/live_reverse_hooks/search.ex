@@ -30,6 +30,14 @@ defmodule LiveReverseHooks.Search do
   @defaults [key: :search, search_param: "search", event: "search", event_search_path: "search"]
 
   @doc """
+  Returns the search text of `key` from a socket or assigns, `nil` for
+  none.
+  """
+  def get_search(search, key \\ :search)
+  def get_search(%Phoenix.LiveView.Socket{assigns: assigns}, key), do: get_search(assigns, key)
+  def get_search(%{} = assigns, key), do: Map.get(assigns, key)
+
+  @doc """
   Returns whether `search` (a socket, assigns or a value) has a search text.
   """
   def search?(search, key \\ :search)

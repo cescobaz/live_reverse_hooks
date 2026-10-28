@@ -68,7 +68,8 @@ event.
 - The param goes to an assign (`:search` by default).
 - The event (`"search"`) sets the assign and patches the URL, keeping
   the other params.
-- `search?/2` tells if there is a search text.
+- `get_search/2` gives the search text, `search?/2` tells if there is
+  one.
 - Mount it more than once, each with its own `:key`, `:search_param`
   and `:event`.
 
@@ -82,7 +83,7 @@ defmodule MyAppWeb.UserLive do
   def handle_params(_params, _uri, socket) do
     users =
       if Search.search?(socket),
-        do: MyApp.Accounts.search_users(socket.assigns.search),
+        do: MyApp.Accounts.search_users(Search.get_search(socket)),
         else: MyApp.Accounts.list_users()
 
     {:noreply, assign(socket, :users, users)}
