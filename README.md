@@ -10,54 +10,6 @@ the assigns are already set from the URL. All hooks of this library share
 the URL: a patch from one keeps the params of the others, and binding the
 same assign, param or event twice raises.
 
-### Params
-
-`LiveReverseHooks.Params` assigns URL params on every `handle_params`.
-
-- Set the params to listen to: path (`{:path, "id"}`), query (`"tab"`)
-  or the full URI (`:uri`).
-- Read them as assigns, anywhere: callbacks, `render/1`, components.
-  Empty strings come as `nil`.
-- Build a `:to` for navigation easily with `build/3` + `build_to/3`,
-  without missing a query key.
-
-```elixir
-defmodule MyAppWeb.ProjectLive do
-  use MyAppWeb, :live_view
-  alias LiveReverseHooks.Params
-
-  # live "/projects/:id", ProjectLive
-  on_mount {Params, project_id: {:path, "id"}, tab: "tab"}
-
-  def handle_params(_params, _uri, socket) do
-    # @project_id and @tab are already assigned here.
-    #
-    # Yes, this is a Repo call straight from the LiveView. Somewhere a
-    # senior engineer just spilled their coffee and doesn't know why.
-    # Put it in a context. Do it for them.
-    project = MyApp.Repo.get!(MyApp.Project, socket.assigns.project_id)
-
-    {:noreply, assign(socket, :project, project)}
-  end
-
-  def handle_event("show_tab", %{"tab" => tab}, socket) do
-    # => "/projects/42?tab=members"
-    to = socket |> Params.build(tab: tab) |> Params.build_to(socket)
-
-    {:noreply, push_patch(socket, to: to)}
-  end
-
-  def render(assigns) do
-    ~H"""
-    <h1>{@project.name}</h1>
-    <button phx-click="show_tab" phx-value-tab="overview">Overview</button>
-    <button phx-click="show_tab" phx-value-tab="members">Members</button>
-    <.members :if={@tab == "members"} project={@project} />
-    """
-  end
-end
-```
-
 ### Search
 
 `LiveReverseHooks.Search` binds a search text to a URL param and a form
@@ -137,6 +89,54 @@ defmodule MyAppWeb.ItemLive do
     <span>Page {@page.page}</span>
     <button phx-click="page" phx-value-rel="1">Next</button>
     <button phx-click="page" phx-value-size="50">50 per page</button>
+    """
+  end
+end
+```
+
+### Params
+
+`LiveReverseHooks.Params` assigns URL params on every `handle_params`.
+
+- Set the params to listen to: path (`{:path, "id"}`), query (`"tab"`)
+  or the full URI (`:uri`).
+- Read them as assigns, anywhere: callbacks, `render/1`, components.
+  Empty strings come as `nil`.
+- Build a `:to` for navigation easily with `build/3` + `build_to/3`,
+  without missing a query key.
+
+```elixir
+defmodule MyAppWeb.ProjectLive do
+  use MyAppWeb, :live_view
+  alias LiveReverseHooks.Params
+
+  # live "/projects/:id", ProjectLive
+  on_mount {Params, project_id: {:path, "id"}, tab: "tab"}
+
+  def handle_params(_params, _uri, socket) do
+    # @project_id and @tab are already assigned here.
+    #
+    # Yes, this is a Repo call straight from the LiveView. Somewhere a
+    # senior engineer just spilled their coffee and doesn't know why.
+    # Put it in a context. Do it for them.
+    project = MyApp.Repo.get!(MyApp.Project, socket.assigns.project_id)
+
+    {:noreply, assign(socket, :project, project)}
+  end
+
+  def handle_event("show_tab", %{"tab" => tab}, socket) do
+    # => "/projects/42?tab=members"
+    to = socket |> Params.build(tab: tab) |> Params.build_to(socket)
+
+    {:noreply, push_patch(socket, to: to)}
+  end
+
+  def render(assigns) do
+    ~H"""
+    <h1>{@project.name}</h1>
+    <button phx-click="show_tab" phx-value-tab="overview">Overview</button>
+    <button phx-click="show_tab" phx-value-tab="members">Members</button>
+    <.members :if={@tab == "members"} project={@project} />
     """
   end
 end
