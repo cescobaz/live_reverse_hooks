@@ -105,12 +105,37 @@ defmodule LiveReverseHooks.ParamsTest do
     assert_raise ArgumentError, ~r/no URI stored/, fn -> Params.build_to(%{}, socket()) end
   end
 
-  test "raises when the same assign key is bound twice" do
-    socket = mount(socket(), project_id: "project_id")
+  test "raises on a used assign key or query param, also of another hook" do
+    socket = mount(socket(), project_id: "project_id", id: {:path, "id"})
 
-    assert_raise ArgumentError, ~r/\[:project_id\] are already bound/, fn ->
-      mount(socket, project_id: "id")
+    assert_raise ArgumentError, ~r/assign :project_id is already used/, fn ->
+      mount(socket, project_id: "other")
     end
+
+    assert_raise ArgumentError, ~r/param "project_id" is already used/, fn ->
+      mount(socket, other: "project_id")
+    end
+
+    assert_raise ArgumentError, ~r/param "project_id" is already used/, fn ->
+      LiveReverseHooks.Pagination.on_mount([page_param: "project_id"], %{}, %{}, socket)
+    end
+
+    # path params don't share the query
+    assert mount(socket, other: "id")
+
+    socket = LiveReverse.detach(socket, Params, project_id: "project_id", id: {:path, "id"})
+    assert mount(socket, project_id: "project_id")
+  end
+
+  test "build keeps the params of the other hooks" do
+    {:cont, socket} =
+      LiveReverseHooks.Pagination.on_mount([page_param: "p"], %{}, %{}, mount(socket(), q: "q"))
+
+    socket = run_handle_params(socket, %{"q" => "x", "p" => "3"}, "http://x/a?q=x&p=3&utm=1")
+
+    assert Params.build(socket, q: "y") == %{"q" => "y", "p" => "3"}
+    assert Params.build(socket, q: nil) |> Params.build_to(socket) == "/a?p=3"
+    assert Params.build(socket, [q: "y"], keep_others: false) == %{"q" => "y"}
   end
 
   test "rejects bad bindings" do

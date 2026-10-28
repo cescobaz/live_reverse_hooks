@@ -9,7 +9,8 @@ defmodule LiveReverseHooks.Params do
       on_mount {LiveReverseHooks.Params, uri: :uri, project_id: {:path, "id"}, page: "page"}
 
   It can be listed more than once: every entry's bindings are applied by
-  one hook, and binding the same assign key twice raises.
+  one hook. Binding an assign key or a query param that is already used,
+  also by another hook of this library, raises.
   `LiveReverse.detach/3` with an entry's bindings unbinds them; the hook
   goes with the last ones.
 
@@ -19,13 +20,16 @@ defmodule LiveReverseHooks.Params do
   """
   use LiveReverse, attach: :once
   import Phoenix.LiveView, only: [put_private: 3]
+  alias LiveReverseHooks.Names
   alias Phoenix.LiveView.Socket
 
   @uri_key {__MODULE__, :uri}
 
   @doc """
   Returns the bound query params, read from the assigns and keyed by param
-  name.
+  name, along with the params of the other hooks of this library (e.g.
+  `LiveReverseHooks.Pagination`), read from the URI stored by the last
+  `handle_params` (see `put_uri/2`).
 
   `overrides` (map or keyword) is keyed by assign key and wins over the
   assigns; keys that are not bound are ignored. Path and `:uri` bindings
@@ -35,15 +39,22 @@ defmodule LiveReverseHooks.Params do
 
     * `:keep_nil` - keeps the `nil` values, e.g. for `build_to/3` with
       `mode: :merge` to remove them from the URI. Defaults to `false`.
+    * `:keep_others` - keeps the params of the other hooks. Defaults to
+      `true`.
   """
   def build(socket, overrides \\ %{}, opts \\ []) do
     overrides = Map.new(overrides)
+    bindings = Enum.concat(LiveReverse.args(socket, __MODULE__))
 
     params =
-      for {key, binding} <- Enum.concat(LiveReverse.args(socket, __MODULE__)),
-          {:query, param} <- [source(binding)] do
+      for {key, binding} <- bindings, {:query, param} <- [source(binding)] do
         {param, Map.get(overrides, key, socket.assigns[key])}
       end
+
+    params =
+      if Keyword.get(opts, :keep_others, true),
+        do: others(socket, bindings) ++ params,
+        else: params
 
     if opts[:keep_nil] do
       Map.new(params)
@@ -100,10 +111,17 @@ defmodule LiveReverseHooks.Params do
   @impl true
   def mount(bindings, _params, _session, socket) do
     validate!(bindings)
-    check_unbound!(Enum.concat(LiveReverse.args(socket, __MODULE__)), bindings)
 
-    {:cont, assign_defaults(socket, bindings)}
+    socket =
+      socket
+      |> Names.claim!(names(bindings))
+      |> assign_defaults(bindings)
+
+    {:cont, socket}
   end
+
+  @impl true
+  def unmount(bindings, socket), do: Names.release(socket, names(bindings))
 
   @impl true
   def handle_params(groups, params, uri, socket) do
@@ -119,10 +137,22 @@ defmodule LiveReverseHooks.Params do
     {:cont, socket}
   end
 
-  defp check_unbound!(current, bindings) do
-    case Keyword.keys(current) -- (Keyword.keys(current) -- Keyword.keys(bindings)) do
-      [] -> :ok
-      dups -> raise ArgumentError, "params #{inspect(dups)} are already bound"
+  defp names(bindings) do
+    for {key, binding} <- bindings,
+        name <- [{:assign, key} | for({:query, param} <- [source(binding)], do: {:param, param})],
+        do: name
+  end
+
+  # the params of the other hooks in the stored URI
+  defp others(socket, bindings) do
+    case socket.private[@uri_key] do
+      nil ->
+        []
+
+      uri ->
+        own = for {_key, binding} <- bindings, {:query, param} <- [source(binding)], do: param
+        query = URI.decode_query(URI.parse(uri).query || "")
+        Map.to_list(Map.take(query, Names.used(socket, :param) -- own))
     end
   end
 

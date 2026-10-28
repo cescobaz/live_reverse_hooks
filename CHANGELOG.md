@@ -4,11 +4,15 @@
 
 First release.
 
-- `LiveReverseHooks.Params`: binds URL params to assigns, with `build/2`,
-  `build_to/2` and `put_uri/2`.
+- `LiveReverseHooks.Params`: binds URL params to assigns, with `build/3`,
+  `build_to/3` and `put_uri/2`; `build/3` keeps the params of the other
+  hooks.
+- Assign keys, query params and events can't be used twice, across the
+  hooks.
 - `LiveReverseHooks.Search`: binds a search text to a URL param and a form
   event, with `search?/2`.
 - `LiveReverseHooks.Pagination`: binds the current page to a URL param, with
   `get_page/2`, `get_page_size/2`, `get_offset/3`, `get_limit/3`,
   `page_to/3`, `page_rel_to/3` and `page_size_to/3`; several can be
-  mounted, and the page size can come from a URL param.
+  mounted, the page size can come from a URL param, and an event
+  patches to a page, a relative page or a size.

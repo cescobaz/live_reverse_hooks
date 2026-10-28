@@ -20,7 +20,8 @@ Phoenix LiveView. Plug them in with `on_mount`.
   bindings are skipped), with overrides keyed
   by assign key (`nil` removes a param). `build_to/3` sets them as the
   query of the current URI and returns the path, so the URI only carries
-  the bound params:
+  the bound params and those of the other hooks (e.g. a `Pagination`
+  page; `keep_others: false` drops them too):
 
   ```elixir
   # live "/projects/:id", ProjectLive
@@ -56,21 +57,24 @@ Phoenix LiveView. Plug them in with `on_mount`.
 
   ```elixir
   on_mount LiveReverseHooks.Search
-  on_mount {LiveReverseHooks.Search, key: :tag_search, param: "q", event: "tag_search"}
+  on_mount {LiveReverseHooks.Search, key: :tag_search, search_param: "q", event: "tag_search"}
   ```
 
 - **`LiveReverseHooks.Pagination`:** binds the current page to a URL
   param, with a page size (`20` by default). Both go to the `:key` assign
   as `%{page: 3, size: 20}`, so a change renders. `get_offset/3` and
   `get_limit/3` give the query window, `page_to/3` and `page_rel_to/3`
-  the path to patch to. List it once per panel, each with its own `:key`
-  and `:param`, to have several paginations; the functions take the
-  `:key`, `:page` by default. With `param_size: "users_page_size"` the
-  page size comes from that param too (`:size` is the fallback), and
-  `page_size_to/3` builds the path to change it.
+  the path to patch to. List it once per panel, each with its own `:key`,
+  `:page_param` and `:event`, to have several paginations; the functions
+  take the `:key`, `:page` by default. With
+  `page_size_param: "users_page_size"` the page size comes from that param
+  too (`:page_size` is the fallback), and `page_size_to/3` builds the path
+  to change it. The `"page"` event (or the `:event` option, `nil` for
+  none) patches too, to the payload's `page`, `rel` (relative) or `size`,
+  e.g. `phx-click="users_page" phx-value-rel="-1"`.
 
   ```elixir
-  on_mount {LiveReverseHooks.Pagination, key: :page, param: "page", size: 20}
+  on_mount {LiveReverseHooks.Pagination, key: :page, page_param: "page", page_size: 20}
 
   items = Items.list(offset: Pagination.get_offset(socket), limit: Pagination.get_limit(socket))
 

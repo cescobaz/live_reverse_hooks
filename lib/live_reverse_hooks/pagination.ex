@@ -5,10 +5,10 @@ defmodule LiveReverseHooks.Pagination do
   On `handle_params` the page and its size are assigned to `:key` as
   `%{page: page, size: size}`, so a change of either renders. A missing,
   invalid or less than 1 page is `1`; the size comes from the
-  `:param_size` param, or `:size` without one.
+  `:page_size_param` param, or `:page_size` without one.
 
       on_mount LiveReverseHooks.Pagination
-      on_mount {LiveReverseHooks.Pagination, key: :page, param: "p", size: 20}
+      on_mount {LiveReverseHooks.Pagination, key: :page, page_param: "p", page_size: 20}
 
   `get_offset/3` and `get_limit/3` turn the page into a query window, and
   `page_to/3` and `page_rel_to/3` build the path to patch to:
@@ -20,31 +20,65 @@ defmodule LiveReverseHooks.Pagination do
   ## Several paginations
 
   It can be listed more than once, e.g. one per panel, each with its own
-  `:key` and `:param`. The functions take the `:key` of the pagination
+  `:key`, `:page_param`, `:page_size_param` and `:event`; mounting one that is
+  already used, also by another hook of this library, raises. The functions take the `:key` of the pagination
   to use, `:page` by default:
 
-      on_mount {LiveReverseHooks.Pagination, key: :users_page, param: "users_page"}
-      on_mount {LiveReverseHooks.Pagination, key: :groups_page, param: "groups_page", size: 10}
+      on_mount {LiveReverseHooks.Pagination, key: :users_page, page_param: "users_page"}
+      on_mount {LiveReverseHooks.Pagination, key: :groups_page, page_param: "groups_page", page_size: 10}
 
       Pagination.get_offset(socket, :groups_page)
       Pagination.page_rel_to(socket, :users_page, 1)
+
+  ## Events
+
+  The `:event` event patches to a page. Its payload has the
+  absolute page at `:event_page_path`, a page relative to the current one
+  at `:event_rel_path`, or a page size (see `page_size_to/3`) at
+  `:event_size_path`:
+
+      on_mount {LiveReverseHooks.Pagination, key: :users_page, page_param: "up", event: "users_page"}
+
+      <button phx-click="users_page" phx-value-rel="-1">Previous</button>
+      <button phx-click="users_page" phx-value-page="1">First</button>
+
+  A path is a payload key, or a list of keys for a nested one. The values
+  are integers or strings of one; a payload without a valid one is
+  ignored.
 
   ## Options
 
     * `:key` - the assign with the page and size, also naming the
       pagination.
       Defaults to `:page`.
-    * `:param` - the URL param. Defaults to `"page"`.
-    * `:size` - the page size, `nil` for none. Defaults to `20`.
-    * `:param_size` - the URL param with the page size, e.g.
-      `"users_page_size"`. A missing or invalid one falls back to `:size`.
-      Defaults to `nil`, a fixed page size.
+    * `:page_param` - the URL param with the page. Defaults to `"page"`.
+    * `:page_size` - the page size, `nil` for none. Defaults to `20`.
+    * `:page_size_param` - the URL param with the page size, e.g.
+      `"users_page_size"`. A missing or invalid one falls back to
+      `:page_size`. Defaults to `nil`, a fixed page size.
+    * `:event` - the event that sets the page, `nil` for none. Defaults to
+      `"page"`.
+    * `:event_page_path` - the event payload path with an absolute page. Defaults to
+      `"page"`.
+    * `:event_rel_path` - the event payload path with a relative page. Defaults to
+      `"rel"`.
+    * `:event_size_path` - the event payload path with a page size. Defaults to
+      `"size"`.
   """
   use LiveReverse
-  import Phoenix.LiveView, only: [put_private: 3]
-  alias LiveReverseHooks.Params
+  import Phoenix.LiveView, only: [push_patch: 2, put_private: 3]
+  alias LiveReverseHooks.{Names, Params}
 
-  @defaults [key: :page, param: "page", size: 20, param_size: nil]
+  @defaults [
+    key: :page,
+    page_param: "page",
+    page_size: 20,
+    page_size_param: nil,
+    event: "page",
+    event_page_path: "page",
+    event_rel_path: "rel",
+    event_size_path: "size"
+  ]
 
   @doc """
   Returns the current page of the `key` pagination, starting at `1`.
@@ -53,12 +87,13 @@ defmodule LiveReverseHooks.Pagination do
 
   @doc """
   Returns the page size of the `key` pagination. Raises if it was mounted
-  with `size: nil` and the `:param_size` param is not set.
+  with `page_size: nil` and the `:page_size_param` param is not set.
   """
   def get_page_size(socket, key \\ :page) do
     case pagination!(socket, key).size do
       nil ->
-        raise ArgumentError, "no page size for pagination #{inspect(key)}, mounted with size: nil"
+        raise ArgumentError,
+              "no page size for pagination #{inspect(key)}, mounted with page_size: nil"
 
       size ->
         size
@@ -93,7 +128,7 @@ defmodule LiveReverseHooks.Pagination do
   """
   def page_to(socket, key \\ :page, page) when is_integer(page) do
     page = if page > 1, do: page
-    Params.build_to(%{config!(socket, key).param => page}, socket, mode: :merge)
+    Params.build_to(%{config!(socket, key).page_param => page}, socket, mode: :merge)
   end
 
   @doc """
@@ -106,18 +141,18 @@ defmodule LiveReverseHooks.Pagination do
   @doc """
   Returns the path of the current URI with `size` as the page size param
   of the `key` pagination, the other params kept but its page, so it goes
-  back to the first page. The `:size` option removes the param. Raises if
-  it was mounted without `:param_size`.
+  back to the first page. The `:page_size` option removes the param.
+  Raises if it was mounted without `:page_size_param`.
   """
   def page_size_to(socket, key \\ :page, size) when is_integer(size) and size > 0 do
     config = config!(socket, key)
 
-    unless config.param_size do
-      raise ArgumentError, "no :param_size for pagination #{inspect(key)}"
+    unless config.page_size_param do
+      raise ArgumentError, "no :page_size_param for pagination #{inspect(key)}"
     end
 
-    size = if size != config.size, do: size
-    query = %{config.param => nil, config.param_size => size}
+    size = if size != config.page_size, do: size
+    query = %{config.page_param => nil, config.page_size_param => size}
     Params.build_to(query, socket, mode: :merge)
   end
 
@@ -126,21 +161,25 @@ defmodule LiveReverseHooks.Pagination do
     opts = opts(arg)
     key = opts[:key]
 
-    if socket.private[private_key(key)] do
-      raise ArgumentError, "pagination #{inspect(key)} is already mounted"
-    end
+    Names.validate_opts!(opts, @defaults, "pagination")
 
     socket =
       socket
-      |> put_private(private_key(key), Map.new(Keyword.take(opts, [:param, :param_size, :size])))
-      |> assign_new(key, fn -> %{page: 1, size: opts[:size]} end)
+      |> Names.claim!(names(opts))
+      |> put_private(
+        private_key(key),
+        Map.new(Keyword.take(opts, [:page_param, :page_size_param, :page_size]))
+      )
+      |> assign_new(key, fn -> %{page: 1, size: opts[:page_size]} end)
 
     {:cont, socket}
   end
 
   @impl true
   def unmount(arg, socket) do
-    %{socket | private: Map.delete(socket.private, private_key(opts(arg)[:key]))}
+    opts = opts(arg)
+    socket = %{socket | private: Map.delete(socket.private, private_key(opts[:key]))}
+    Names.release(socket, names(opts))
   end
 
   @impl true
@@ -148,8 +187,8 @@ defmodule LiveReverseHooks.Pagination do
     opts = opts(arg)
 
     pagination = %{
-      page: parse_positive(params[opts[:param]], 1),
-      size: parse_positive(params[opts[:param_size]], opts[:size])
+      page: parse_positive(params[opts[:page_param]], 1),
+      size: parse_positive(params[opts[:page_size_param]], opts[:page_size])
     }
 
     socket =
@@ -160,7 +199,45 @@ defmodule LiveReverseHooks.Pagination do
     {:cont, socket}
   end
 
+  @impl true
+  def handle_event(arg, event, payload, socket) do
+    opts = opts(arg)
+
+    if event != nil and event == opts[:event] do
+      key = opts[:key]
+      value = &parse_int(get_in(payload, List.wrap(opts[&1])))
+
+      to =
+        case {value.(:event_size_path), value.(:event_page_path), value.(:event_rel_path)} do
+          {size, _page, _rel} when is_integer(size) and size > 0 ->
+            page_size_to(socket, key, size)
+
+          {_size, page, _rel} when is_integer(page) ->
+            page_to(socket, key, page)
+
+          {_size, _page, rel} when is_integer(rel) ->
+            page_rel_to(socket, key, rel)
+
+          _invalid ->
+            nil
+        end
+
+      {:halt, if(to, do: push_patch(socket, to: to), else: socket)}
+    else
+      {:cont, socket}
+    end
+  end
+
   defp private_key(key), do: {__MODULE__, key}
+
+  defp names(opts) do
+    [
+      assign: opts[:key],
+      event: opts[:event],
+      param: opts[:page_param],
+      param: opts[:page_size_param]
+    ]
+  end
 
   defp config!(socket, key) do
     case socket.private[private_key(key)] do
@@ -185,4 +262,15 @@ defmodule LiveReverseHooks.Pagination do
   end
 
   defp parse_positive(_value, default), do: default
+
+  defp parse_int(value) when is_integer(value), do: value
+
+  defp parse_int(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {int, ""} -> int
+      _ -> nil
+    end
+  end
+
+  defp parse_int(_value), do: nil
 end

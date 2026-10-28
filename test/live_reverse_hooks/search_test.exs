@@ -60,7 +60,12 @@ defmodule LiveReverseHooks.SearchTest do
     socket =
       socket()
       |> mount(:default)
-      |> mount(key: :tag_search, param: "q", event: "tag_search", payload_key: "value")
+      |> mount(
+        key: :tag_search,
+        search_param: "q",
+        event: "tag_search",
+        event_search_path: "value"
+      )
       |> run_handle_params(%{"search" => "a", "q" => "b"}, "http://h/a")
 
     assert %{search: "a", tag_search: "b"} = socket.assigns
@@ -68,6 +73,44 @@ defmodule LiveReverseHooks.SearchTest do
     {:halt, socket} = run_handle_event(socket, "tag_search", %{"value" => "c"})
     assert %{search: "a", tag_search: "c"} = socket.assigns
     assert {:live, :patch, %{to: "/a?q=c"}} = socket.redirected
+  end
+
+  test "nested event path, no event and unknown options" do
+    socket =
+      socket()
+      |> mount(event_search_path: ["form", "q"])
+      |> mount(key: :other, search_param: "other", event: nil)
+      |> run_handle_params(%{}, "http://h/a")
+
+    assert {:halt, socket} = run_handle_event(socket, "search", %{"form" => %{"q" => "z"}})
+    assert socket.assigns.search == "z"
+
+    assert_raise ArgumentError, ~r/unknown search options \[:param\]/, fn ->
+      mount(socket(), param: "q")
+    end
+  end
+
+  test "raises on a used assign, param or event, also of another hook" do
+    socket = mount(socket(), :default)
+
+    assert_raise ArgumentError, ~r/assign :search is already used/, fn ->
+      mount(socket, search_param: "q", event: "q")
+    end
+
+    assert_raise ArgumentError, ~r/param "search" is already used/, fn ->
+      mount(socket, key: :q, event: "q")
+    end
+
+    assert_raise ArgumentError, ~r/event "search" is already used/, fn ->
+      mount(socket, key: :q, search_param: "q")
+    end
+
+    assert_raise ArgumentError, ~r/param "search" is already used/, fn ->
+      LiveReverseHooks.Pagination.on_mount([page_param: "search"], %{}, %{}, socket)
+    end
+
+    socket = LiveReverse.detach(socket, Search)
+    assert mount(socket, :default)
   end
 
   test "search?" do

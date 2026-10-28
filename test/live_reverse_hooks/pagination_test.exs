@@ -14,6 +14,18 @@ defmodule LiveReverseHooks.PaginationTest do
     socket
   end
 
+  defp run_handle_event(socket, event, payload) do
+    Enum.reduce_while(socket.private.lifecycle.handle_event, {:cont, socket}, fn hook,
+                                                                                 {_, socket} ->
+      case hook.function.(event, payload, socket) do
+        {:cont, socket} -> {:cont, {:cont, socket}}
+        {:halt, socket} -> {:halt, {:halt, socket}}
+      end
+    end)
+  end
+
+  defp patched_to(%Socket{redirected: {:live, :patch, %{to: to}}}), do: to
+
   defp run_handle_params(socket, params, uri) do
     Enum.reduce(socket.private.lifecycle.handle_params, socket, fn hook, socket ->
       {:cont, socket} = hook.function.(params, uri, socket)
@@ -39,7 +51,7 @@ defmodule LiveReverseHooks.PaginationTest do
   test "custom key and param" do
     socket =
       socket()
-      |> mount(key: :p, param: "p")
+      |> mount(key: :p, page_param: "p")
       |> run_handle_params(%{"p" => "2"}, "http://h/a")
 
     assert socket.assigns.p == %{page: 2, size: 20}
@@ -49,7 +61,7 @@ defmodule LiveReverseHooks.PaginationTest do
   test "size, offset and limit" do
     socket =
       socket()
-      |> mount(size: 10)
+      |> mount(page_size: 10)
       |> run_handle_params(%{"page" => "3"}, "http://h/a")
 
     assert Pagination.get_page_size(socket) == 10
@@ -60,7 +72,7 @@ defmodule LiveReverseHooks.PaginationTest do
   end
 
   test "raises without a size" do
-    socket = socket() |> mount(size: nil) |> run_handle_params(%{}, "http://h/a")
+    socket = socket() |> mount(page_size: nil) |> run_handle_params(%{}, "http://h/a")
 
     assert_raise ArgumentError, fn -> Pagination.get_page_size(socket) end
     assert_raise ArgumentError, fn -> Pagination.get_limit(socket) end
@@ -83,8 +95,8 @@ defmodule LiveReverseHooks.PaginationTest do
   test "several paginations" do
     socket =
       socket()
-      |> mount(key: :users_page, param: "up")
-      |> mount(key: :groups_page, param: "gp", size: 10)
+      |> mount(key: :users_page, page_param: "up", event: "up")
+      |> mount(key: :groups_page, page_param: "gp", event: "gp", page_size: 10)
       |> run_handle_params(%{"up" => "2", "gp" => "3"}, "http://h/a?up=2&gp=3")
 
     assert %{users_page: %{page: 2, size: 20}, groups_page: %{page: 3, size: 10}} =
@@ -99,21 +111,30 @@ defmodule LiveReverseHooks.PaginationTest do
     assert Pagination.page_to(socket, :users_page, 1) == "/a?gp=3"
 
     assert_raise ArgumentError, ~r/not mounted/, fn -> Pagination.get_page(socket) end
-    assert_raise ArgumentError, ~r/already mounted/, fn -> mount(socket, key: :users_page) end
 
-    socket = LiveReverse.detach(socket, Pagination, key: :users_page, param: "up")
+    assert_raise ArgumentError, ~r/assign :users_page is already used/, fn ->
+      mount(socket, key: :users_page)
+    end
+
+    assert_raise ArgumentError, ~r/event "gp" is already used/, fn ->
+      mount(socket, key: :x, event: "gp")
+    end
+
+    socket =
+      LiveReverse.detach(socket, Pagination, key: :users_page, page_param: "up", event: "up")
 
     assert_raise ArgumentError, ~r/not mounted/, fn ->
       Pagination.get_page(socket, :users_page)
     end
 
     assert Pagination.get_page(socket, :groups_page) == 3
+    assert mount(socket, key: :users_page, event: "up")
   end
 
   test "page size from a param" do
     socket =
       socket()
-      |> mount(key: :users_page, param: "up", param_size: "up_size", size: 10)
+      |> mount(key: :users_page, page_param: "up", page_size_param: "up_size", page_size: 10)
       |> run_handle_params(%{"up" => "3"}, "http://h/a?up=3&q=x")
 
     assert Pagination.get_page_size(socket, :users_page) == 10
@@ -134,8 +155,82 @@ defmodule LiveReverseHooks.PaginationTest do
     assert Pagination.page_size_to(socket, :users_page, 10) == "/a?q=x"
   end
 
-  test "page_size_to raises without param_size" do
+  test "page_size_to raises without page_size_param" do
     socket = socket() |> mount(:default) |> run_handle_params(%{}, "http://h/a")
-    assert_raise ArgumentError, ~r/param_size/, fn -> Pagination.page_size_to(socket, 25) end
+    assert_raise ArgumentError, ~r/page_size_param/, fn -> Pagination.page_size_to(socket, 25) end
+  end
+
+  test "events patch to a page, a relative page or a size" do
+    socket =
+      socket()
+      |> mount(
+        key: :users_page,
+        page_param: "up",
+        page_size_param: "up_size",
+        event: "users_page"
+      )
+      |> mount(
+        key: :groups_page,
+        page_param: "gp",
+        event: "groups_page",
+        event_rel_path: ["nav", "rel"]
+      )
+      |> run_handle_params(%{"up" => "3", "gp" => "2"}, "http://h/a?up=3&gp=2")
+
+    assert {:halt, s} = run_handle_event(socket, "users_page", %{"page" => "5"})
+    assert patched_to(s) == "/a?gp=2&up=5"
+
+    assert {:halt, s} = run_handle_event(socket, "users_page", %{"rel" => "-1"})
+    assert patched_to(s) == "/a?gp=2&up=2"
+
+    assert {:halt, s} = run_handle_event(socket, "users_page", %{"rel" => 1})
+    assert patched_to(s) == "/a?gp=2&up=4"
+
+    assert {:halt, s} = run_handle_event(socket, "users_page", %{"size" => "50"})
+    assert patched_to(s) == "/a?gp=2&up_size=50"
+
+    assert {:halt, s} = run_handle_event(socket, "groups_page", %{"nav" => %{"rel" => "1"}})
+    assert patched_to(s) == "/a?gp=3&up=3"
+
+    assert {:halt, s} = run_handle_event(socket, "users_page", %{"page" => "x"})
+    assert s.redirected == nil
+
+    assert {:cont, _} = run_handle_event(socket, "other", %{"page" => "5"})
+  end
+
+  test "page event by default, nil for none" do
+    socket = socket() |> mount(:default) |> run_handle_params(%{}, "http://h/a")
+    assert {:halt, s} = run_handle_event(socket, "page", %{"page" => "2"})
+    assert patched_to(s) == "/a?page=2"
+
+    socket =
+      socket()
+      |> mount(event: nil)
+      |> mount(key: :other, page_param: "other", event: nil)
+      |> run_handle_params(%{}, "http://h/a")
+
+    assert {:cont, _} = run_handle_event(socket, "page", %{"page" => "2"})
+  end
+
+  test "raises on a used param or param_size" do
+    socket = mount(socket(), page_param: "p", page_size_param: "p_size", event: nil)
+
+    assert_raise ArgumentError, ~r/param "p" is already used/, fn ->
+      mount(socket, key: :x, page_param: "p", event: "x")
+    end
+
+    assert_raise ArgumentError, ~r/param "p_size" is already used/, fn ->
+      mount(socket, key: :x, page_param: "p_size", event: "x")
+    end
+
+    assert_raise ArgumentError, ~r/param "y" is already used/, fn ->
+      mount(socket(), key: :y, page_param: "y", page_size_param: "y", event: "y")
+    end
+  end
+
+  test "raises on unknown options" do
+    assert_raise ArgumentError, ~r/unknown pagination options \[:param\]/, fn ->
+      mount(socket(), param: "p")
+    end
   end
 end
