@@ -59,6 +59,25 @@ Phoenix LiveView. Plug them in with `on_mount`.
   on_mount {LiveReverseHooks.Search, key: :tag_search, param: "q", event: "tag_search"}
   ```
 
+- **`LiveReverseHooks.Pagination`:** binds the current page to a URL
+  param, with a page size (`20` by default). Both go to the `:key` assign
+  as `%{page: 3, size: 20}`, so a change renders. `get_offset/3` and
+  `get_limit/3` give the query window, `page_to/3` and `page_rel_to/3`
+  the path to patch to. List it once per panel, each with its own `:key`
+  and `:param`, to have several paginations; the functions take the
+  `:key`, `:page` by default. With `param_size: "users_page_size"` the
+  page size comes from that param too (`:size` is the fallback), and
+  `page_size_to/3` builds the path to change it.
+
+  ```elixir
+  on_mount {LiveReverseHooks.Pagination, key: :page, param: "page", size: 20}
+
+  items = Items.list(offset: Pagination.get_offset(socket), limit: Pagination.get_limit(socket))
+
+  # previous page
+  push_patch(socket, to: Pagination.page_rel_to(socket, -1))
+  ```
+
 See the module docs for the details.
 
 ## Installation
