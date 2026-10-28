@@ -5,82 +5,146 @@ Phoenix LiveView. Plug them in with `on_mount`.
 
 ## Hooks
 
-- **`LiveReverseHooks.Params`:** assigns URL params on every
-  `handle_params`, and builds them back for a patch with `build/3` and
-  `build_to/3`.
+Each hook runs before the LiveView's own callbacks, so in `handle_params/3`
+the assigns are already set from the URL. All hooks of this library share
+the URL: a patch from one keeps the params of the others, and binding the
+same assign, param or event twice raises.
 
-  ```elixir
-  on_mount {LiveReverseHooks.Params, uri: :uri, project_id: {:path, "id"}, page: "page"}
-  ```
+### Params
 
-  A binding is `{:path, name}` for a path param, `{:query, name}` or just
-  `name` for a query param, or `:uri` for the full URI.
+`LiveReverseHooks.Params` assigns URL params on every `handle_params`.
 
-  `build/3` turns the bound assigns back into query params (path and `:uri`
-  bindings are skipped), with overrides keyed
-  by assign key (`nil` removes a param). `build_to/3` sets them as the
-  query of the current URI and returns the path, so the URI only carries
-  the bound params and those of the other hooks (e.g. a `Pagination`
-  page; `keep_others: false` drops them too):
+- Path params (`{:path, "id"}`), query params (`"tab"` or
+  `{:query, "tab"}`) and the full URI (`:uri`).
+- Empty strings become `nil`.
+- `build/3` turns the assigns back into query params, with overrides
+  (`nil` removes one); `build_to/3` makes the path to patch to.
+- `build/3` also carries the params of the other hooks (e.g. a
+  `Pagination` page), so `build_to/3` drops only unknown params;
+  `mode: :merge` keeps all of them.
 
-  ```elixir
+```elixir
+defmodule MyAppWeb.ProjectLive do
+  use MyAppWeb, :live_view
+  alias LiveReverseHooks.Params
+
   # live "/projects/:id", ProjectLive
-  on_mount {LiveReverseHooks.Params, project_id: {:path, "id"}, page: "page"}
+  on_mount {Params, project_id: {:path, "id"}, tab: "tab"}
 
-  def handle_event("next_page", _params, socket) do
-    page = String.to_integer(socket.assigns.page || "1") + 1
+  def handle_params(_params, _uri, socket) do
+    # @project_id and @tab are already assigned here.
+    #
+    # Yes, this is a Repo call straight from the LiveView. Somewhere a
+    # senior engineer just spilled their coffee and doesn't know why.
+    # Put it in a context. Do it for them.
+    project = MyApp.Repo.get!(MyApp.Project, socket.assigns.project_id)
 
-    # => "/projects/g1?page=2"
-    to = socket |> Params.build(page: page) |> Params.build_to(socket)
+    {:noreply, assign(socket, :project, project)}
+  end
+
+  def handle_event("show_tab", %{"tab" => tab}, socket) do
+    # => "/projects/42?tab=members"
+    to = socket |> Params.build(tab: tab) |> Params.build_to(socket)
 
     {:noreply, push_patch(socket, to: to)}
   end
 
-  def handle_event("first_page", _params, socket) do
-    # => "/projects/g1"
-    to = socket |> Params.build(page: nil) |> Params.build_to(socket)
-
-    {:noreply, push_patch(socket, to: to)}
+  def render(assigns) do
+    ~H"""
+    <h1>{@project.name}</h1>
+    <button phx-click="show_tab" phx-value-tab="overview">Overview</button>
+    <button phx-click="show_tab" phx-value-tab="members">Members</button>
+    <.members :if={@tab == "members"} project={@project} />
+    """
   end
-  ```
+end
+```
 
-  With `mode: :merge`, `build_to/3` keeps the other params of the URI
-  instead, and `keep_nil: true` lets `build/3` remove params from it:
+### Search
 
-  ```elixir
-  # => "/projects/g1?other=1", from "/projects/g1?other=1&page=2"
-  socket |> Params.build([page: nil], keep_nil: true) |> Params.build_to(socket, mode: :merge)
-  ```
+`LiveReverseHooks.Search` binds a search text to a URL param and a form
+event.
 
-- **`LiveReverseHooks.Search`:** binds a search text to a URL param and a
-  form event; the event assigns the text and patches the URL.
+- The param goes to an assign (`:search` by default).
+- The event (`"search"`) sets the assign and patches the URL, keeping
+  the other params.
+- `search?/2` tells if there is a search text.
+- Mount it more than once, each with its own `:key`, `:search_param`
+  and `:event`.
 
-  ```elixir
-  on_mount LiveReverseHooks.Search
-  on_mount {LiveReverseHooks.Search, key: :tag_search, search_param: "q", event: "tag_search"}
-  ```
+```elixir
+defmodule MyAppWeb.UserLive do
+  use MyAppWeb, :live_view
+  alias LiveReverseHooks.Search
 
-- **`LiveReverseHooks.Pagination`:** binds the current page to a URL
-  param, with a page size (`20` by default). Both go to the `:key` assign
-  as `%{page: 3, size: 20}`, so a change renders. `get_offset/3` and
-  `get_limit/3` give the query window, `page_to/3` and `page_rel_to/3`
-  the path to patch to. List it once per panel, each with its own `:key`,
-  `:page_param` and `:event`, to have several paginations; the functions
-  take the `:key`, `:page` by default. With
-  `page_size_param: "users_page_size"` the page size comes from that param
-  too (`:page_size` is the fallback), and `page_size_to/3` builds the path
-  to change it. The `"page"` event (or the `:event` option, `nil` for
-  none) patches too, to the payload's `page`, `rel` (relative) or `size`,
-  e.g. `phx-click="users_page" phx-value-rel="-1"`.
+  on_mount Search
 
-  ```elixir
-  on_mount {LiveReverseHooks.Pagination, key: :page, page_param: "page", page_size: 20}
+  def handle_params(_params, _uri, socket) do
+    users =
+      if Search.search?(socket),
+        do: MyApp.Accounts.search_users(socket.assigns.search),
+        else: MyApp.Accounts.list_users()
 
-  items = Items.list(offset: Pagination.get_offset(socket), limit: Pagination.get_limit(socket))
+    {:noreply, assign(socket, :users, users)}
+  end
 
-  # previous page
-  push_patch(socket, to: Pagination.page_rel_to(socket, -1))
-  ```
+  def render(assigns) do
+    ~H"""
+    <form phx-change="search" phx-submit="search">
+      <input type="search" name="search" value={@search} phx-debounce="300" />
+    </form>
+    <ul>
+      <li :for={user <- @users}>{user.name}</li>
+    </ul>
+    """
+  end
+end
+```
+
+### Pagination
+
+`LiveReverseHooks.Pagination` binds the current page to a URL param.
+
+- The `:key` assign (`:page` by default) holds `%{page: 3, size: 20}`.
+- `get_offset/3` and `get_limit/3` give the query window.
+- `page_to/3`, `page_rel_to/3` and `page_size_to/3` build the path to
+  patch to; the `"page"` event does it from a `page`, `rel` or `size`
+  payload.
+- The page size is fixed (`:page_size`, `20`) or read from a param
+  (`:page_size_param`).
+- Mount it more than once, e.g. one per panel, each with its own
+  `:key`, `:page_param` and `:event`.
+
+```elixir
+defmodule MyAppWeb.ItemLive do
+  use MyAppWeb, :live_view
+  alias LiveReverseHooks.Pagination
+
+  on_mount {Pagination, page_size: 20, page_size_param: "size"}
+
+  def handle_params(_params, _uri, socket) do
+    items =
+      MyApp.Items.list(
+        offset: Pagination.get_offset(socket),
+        limit: Pagination.get_limit(socket)
+      )
+
+    {:noreply, assign(socket, :items, items)}
+  end
+
+  def render(assigns) do
+    ~H"""
+    <ul>
+      <li :for={item <- @items}>{item.name}</li>
+    </ul>
+    <button phx-click="page" phx-value-rel="-1" disabled={@page.page == 1}>Previous</button>
+    <span>Page {@page.page}</span>
+    <button phx-click="page" phx-value-rel="1">Next</button>
+    <button phx-click="page" phx-value-size="50">50 per page</button>
+    """
+  end
+end
+```
 
 See the module docs for the details.
 
