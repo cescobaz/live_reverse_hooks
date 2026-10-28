@@ -14,14 +14,12 @@ same assign, param or event twice raises.
 
 `LiveReverseHooks.Params` assigns URL params on every `handle_params`.
 
-- Path params (`{:path, "id"}`), query params (`"tab"` or
-  `{:query, "tab"}`) and the full URI (`:uri`).
-- Empty strings become `nil`.
-- `build/3` turns the assigns back into query params, with overrides
-  (`nil` removes one); `build_to/3` makes the path to patch to.
-- `build/3` also carries the params of the other hooks (e.g. a
-  `Pagination` page), so `build_to/3` drops only unknown params;
-  `mode: :merge` keeps all of them.
+- Set the params to listen to: path (`{:path, "id"}`), query (`"tab"`)
+  or the full URI (`:uri`).
+- Read them as assigns, anywhere: callbacks, `render/1`, components.
+  Empty strings come as `nil`.
+- Build a `:to` for navigation easily with `build/3` + `build_to/3`,
+  without missing a query key.
 
 ```elixir
 defmodule MyAppWeb.ProjectLive do
@@ -65,13 +63,12 @@ end
 `LiveReverseHooks.Search` binds a search text to a URL param and a form
 event.
 
-- The param goes to an assign (`:search` by default).
-- The event (`"search"`) sets the assign and patches the URL, keeping
-  the other params.
-- `get_search/2` gives the search text, `search?/2` tells if there is
-  one.
-- Mount it more than once, each with its own `:key`, `:search_param`
-  and `:event`.
+- Set the param to listen to (default `"search"`), it lands in the
+  `:search` assign.
+- Set the event to listen to (default `"search"`), it changes the param
+  for you.
+- Attach a `<form phx-change="search">` to the view, the job is done.
+- Read it with `get_search/2` or `search?/2`.
 
 ```elixir
 defmodule MyAppWeb.UserLive do
@@ -106,15 +103,13 @@ end
 
 `LiveReverseHooks.Pagination` binds the current page to a URL param.
 
-- The `:key` assign (`:page` by default) holds `%{page: 3, size: 20}`.
-- `get_offset/3` and `get_limit/3` give the query window.
-- `page_to/3`, `page_rel_to/3` and `page_size_to/3` build the path to
-  patch to; the `"page"` event does it from a `page`, `rel` or `size`
-  payload.
-- The page size is fixed (`:page_size`, `20`) or read from a param
-  (`:page_size_param`).
-- Mount it more than once, e.g. one per panel, each with its own
-  `:key`, `:page_param` and `:event`.
+- Set the param to listen to (default `"page"`), it lands in the
+  `:page` assign as `%{page: 3, size: 20}`.
+- Set the event to listen to (default `"page"`), it changes the param
+  for you.
+- Attach a `<button phx-click="page" phx-value-rel="1">` to the view,
+  the job is done.
+- Query with `get_offset/3` and `get_limit/3`.
 
 ```elixir
 defmodule MyAppWeb.ItemLive do
