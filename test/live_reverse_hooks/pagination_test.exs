@@ -71,6 +71,22 @@ defmodule LiveReverseHooks.PaginationTest do
     assert Pagination.get_offset(socket, 5) == 10
   end
 
+  test "get_page_count" do
+    socket =
+      socket()
+      |> mount(page_size: 10)
+      |> mount(key: :other, page_param: "other", event: nil, page_size: 3)
+      |> run_handle_params(%{}, "http://h/a")
+
+    assert Pagination.get_page_count(socket, 0) == 1
+    assert Pagination.get_page_count(socket, 10) == 1
+    assert Pagination.get_page_count(socket, 11) == 2
+    assert Pagination.get_page_count(socket, :other, 10) == 4
+
+    socket = socket() |> mount(page_size: nil) |> run_handle_params(%{}, "http://h/a")
+    assert_raise ArgumentError, fn -> Pagination.get_page_count(socket, 5) end
+  end
+
   test "raises without a size" do
     socket = socket() |> mount(page_size: nil) |> run_handle_params(%{}, "http://h/a")
 

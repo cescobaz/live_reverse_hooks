@@ -122,6 +122,21 @@ defmodule LiveReverseHooks.Pagination do
   def get_limit(_socket, _key, size) when is_integer(size) and size > 0, do: size
 
   @doc """
+  Returns the number of pages of `count` items with the page size of the
+  `key` pagination, at least `1` so an empty list still has its first
+  page. Raises without a page size, like `get_page_size/2`.
+
+      pages = Pagination.get_page_count(socket, Items.count())
+
+      if Pagination.get_page(socket) > pages,
+        do: push_patch(socket, to: Pagination.page_to(socket, pages))
+  """
+  def get_page_count(socket, key \\ :page, count) when is_integer(count) and count >= 0 do
+    size = get_page_size(socket, key)
+    max(div(count + size - 1, size), 1)
+  end
+
+  @doc """
   Returns the path of the current URI with `page` as the param of the
   `key` pagination, the other params kept. Page `1`, or less, removes
   the param.
