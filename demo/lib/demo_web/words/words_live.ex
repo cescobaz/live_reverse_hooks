@@ -56,14 +56,12 @@ defmodule DemoWeb.Words.WordsLive do
 
     <main>
       <h1>Words</h1>
-
       <SearchForm.render search={@search} />
-
       <WordForm.render form={@form} />
-
       <WordList.render words={@words} />
-
-      <PaginationNav.render page={@page.page} pages={@pages}>({@count} words)</PaginationNav.render>
+      <PaginationNav.render page={@page.page} pages={@pages}>
+        ({@count} words)
+      </PaginationNav.render>
     </main>
     """
   end

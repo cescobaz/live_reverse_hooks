@@ -1,8 +1,8 @@
 defmodule DemoWeb.Words.WordsHook do
   @moduledoc """
   Loads the words of a `Demo.Words` query into the `:words`, `:count` and
-  `:pages` assigns, on every `handle_params` and on every event of the
-  words of the query user. The first time it sees a user, it gives them
+  `:pages` assigns, on every `handle_params` with a new query and on every
+  event of the words of the query user. The first time it sees a user, it gives them
   their words with `Demo.Words.init_user/1`. Past the last page, e.g.
   after a delete, it patches to the last page.
 
@@ -35,7 +35,7 @@ defmodule DemoWeb.Words.WordsHook do
   @impl true
   def handle_params(arg, _params, _uri, socket) do
     opts = opts(arg)
-    {:cont, socket |> init_user(opts) |> load_words(opts)}
+    {:cont, socket |> init_user(opts) |> maybe_load_words(opts)}
   end
 
   @impl true
@@ -66,6 +66,17 @@ defmodule DemoWeb.Words.WordsHook do
     end
   end
 
+  # Skips the load when the query is the one of the last load: the words
+  # can't have changed without an event.
+  defp maybe_load_words(socket, opts) do
+    query = socket.assigns[opts[:query_key]]
+
+    case socket.private[{__MODULE__, :loaded, opts[:query_key]}] do
+      ^query -> socket
+      _other -> load_words(socket, opts)
+    end
+  end
+
   defp load_words(socket, opts) do
     query = socket.assigns[opts[:query_key]]
     page_key = opts[:page_key]
@@ -76,7 +87,10 @@ defmodule DemoWeb.Words.WordsHook do
       push_patch(socket, to: Pagination.page_to(socket, page_key, pages))
     else
       {:ok, words} = Words.list(query)
-      assign(socket, words: words, count: count, pages: pages)
+
+      socket
+      |> assign(words: words, count: count, pages: pages)
+      |> put_private({__MODULE__, :loaded, opts[:query_key]}, query)
     end
   end
 
