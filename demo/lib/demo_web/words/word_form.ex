@@ -17,7 +17,13 @@ defmodule DemoWeb.Words.WordForm do
   def render(assigns) do
     ~H"""
     <.form for={@form} id={@id} phx-change={@validate_event} phx-submit={@submit_event}>
-      <input type="text" name="text" value={@form[:text].value} placeholder="New word" />
+      <input
+        type="text"
+        name="text"
+        value={@form[:text].value}
+        placeholder="New word"
+        autocomplete="off"
+      />
       <button>Add</button>
     </.form>
     <p :for={{message, _opts} <- @form[:text].errors} class="error">{message}</p>

@@ -22,7 +22,7 @@ defmodule DemoWeb.Components.SearchForm do
         name={@name}
         value={@search}
         placeholder={@placeholder}
-        phx-debounce="300"
+        autocomplete="off"
       />
     </form>
     """
