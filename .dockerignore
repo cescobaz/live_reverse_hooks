@@ -1,0 +1,9 @@
+.git
+.github
+.env
+_build
+deps
+doc
+demo/.env
+demo/_build
+demo/deps

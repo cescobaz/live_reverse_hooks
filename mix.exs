@@ -27,7 +27,7 @@ defmodule LiveReverseHooks.MixProject do
 
   defp deps do
     [
-      {:live_reverse, git: "git@github.com:cescobaz/live_reverse.git", branch: "main"},
+      {:live_reverse, git: "https://github.com/cescobaz/live_reverse.git", branch: "main"},
       {:phoenix_live_view, "~> 1.0"},
       {:ex_doc, "~> 0.34", only: :dev, runtime: false}
     ]
