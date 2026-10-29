@@ -20,6 +20,10 @@ event.
 - Set the event to listen to (default `"search"`), it changes the param
   for you.
 - Attach a `<form phx-change="search">` to the view, the job is done.
+- Set the params to drop on a new search, e.g.
+  `drop_params_on_change: ["page"]` to go back to the first page.
+  `use LiveReverseHooks.Search` and override `handle_search_change/3`
+  to do more.
 - Read it with `get_search/2` or `search?/2`.
 
 ```elixir
@@ -27,7 +31,7 @@ defmodule MyAppWeb.UserLive do
   use MyAppWeb, :live_view
   alias LiveReverseHooks.Search
 
-  on_mount Search
+  on_mount {Search, drop_params_on_change: ["page"]}
 
   def handle_params(_params, _uri, socket) do
     users =

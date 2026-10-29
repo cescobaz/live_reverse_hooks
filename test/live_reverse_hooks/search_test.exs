@@ -4,13 +4,21 @@ defmodule LiveReverseHooks.SearchTest do
   alias LiveReverseHooks.Search
   alias Phoenix.LiveView.{Lifecycle, Socket}
 
+  defmodule CustomSearch do
+    use LiveReverseHooks.Search
+
+    @impl LiveReverseHooks.Search
+    def handle_search_change(arg, search, socket),
+      do: super(arg, search, assign(socket, :changed_to, search))
+  end
+
   # handle_params hooks need a socket mounted at a router, any module will do
   defp socket do
     %Socket{router: __MODULE__, private: %{lifecycle: %Lifecycle{}, live_temp: %{}}}
   end
 
-  defp mount(socket, arg) do
-    {:cont, socket} = Search.on_mount(arg, %{}, %{}, socket)
+  defp mount(socket, arg, module \\ Search) do
+    {:cont, socket} = module.on_mount(arg, %{}, %{}, socket)
     socket
   end
 
@@ -42,18 +50,60 @@ defmodule LiveReverseHooks.SearchTest do
     assert socket.assigns.search == nil
   end
 
-  test "search event assigns, patches and halts" do
+  test "search event patches and halts, the patch assigns" do
     socket =
       socket()
       |> mount(:default)
       |> run_handle_params(%{}, "http://h/a?b=1")
 
     assert {:halt, socket} = run_handle_event(socket, "search", %{"search" => "y"})
-    assert socket.assigns.search == "y"
+    assert socket.assigns.search == nil
     assert {:live, :patch, %{to: to}} = socket.redirected
     assert URI.decode_query(URI.parse(to).query) == %{"b" => "1", "search" => "y"}
 
+    socket = run_handle_params(socket, URI.decode_query(URI.parse(to).query), "http://h" <> to)
+    assert socket.assigns.search == "y"
+
     assert {:cont, _} = run_handle_event(socket, "other", %{})
+  end
+
+  test "search event drops params, and skips an unchanged search" do
+    socket =
+      socket()
+      |> mount(drop_params_on_change: ["page", "size"])
+      |> run_handle_params(%{"search" => "x"}, "http://h/a?b=1&page=3&size=5&search=x")
+
+    assert {:halt, socket} = run_handle_event(socket, "search", %{"search" => "y"})
+    assert {:live, :patch, %{to: to}} = socket.redirected
+    assert URI.decode_query(URI.parse(to).query) == %{"b" => "1", "search" => "y"}
+
+    socket =
+      run_handle_params(
+        %{socket | redirected: nil},
+        %{"search" => "y"},
+        "http://h/a?search=y&page=2"
+      )
+
+    assert {:halt, socket} = run_handle_event(socket, "search", %{"search" => "y"})
+    assert socket.redirected == nil
+
+    assert {:halt, socket} = run_handle_event(socket, "search", %{"search" => ""})
+    assert {:live, :patch, %{to: "/a"}} = socket.redirected
+  end
+
+  test "a module using Search overrides handle_search_change" do
+    socket =
+      socket()
+      |> mount([drop_params_on_change: ["page"]], CustomSearch)
+      |> run_handle_params(%{}, "http://h/a?page=2")
+
+    assert {:halt, socket} = run_handle_event(socket, "search", %{"search" => "y"})
+    assert %{search: nil, changed_to: "y"} = socket.assigns
+    assert {:live, :patch, %{to: "/a?search=y"}} = socket.redirected
+
+    assert_raise ArgumentError, ~r/assign :search is already used/, fn ->
+      mount(socket, :default)
+    end
   end
 
   test "custom options and several entries" do
@@ -71,7 +121,6 @@ defmodule LiveReverseHooks.SearchTest do
     assert %{search: "a", tag_search: "b"} = socket.assigns
 
     {:halt, socket} = run_handle_event(socket, "tag_search", %{"value" => "c"})
-    assert %{search: "a", tag_search: "c"} = socket.assigns
     assert {:live, :patch, %{to: "/a?q=c"}} = socket.redirected
   end
 
@@ -83,7 +132,7 @@ defmodule LiveReverseHooks.SearchTest do
       |> run_handle_params(%{}, "http://h/a")
 
     assert {:halt, socket} = run_handle_event(socket, "search", %{"form" => %{"q" => "z"}})
-    assert socket.assigns.search == "z"
+    assert {:live, :patch, %{to: "/a?search=z"}} = socket.redirected
 
     assert_raise ArgumentError, ~r/unknown search options \[:param\]/, fn ->
       mount(socket(), param: "q")
@@ -111,6 +160,13 @@ defmodule LiveReverseHooks.SearchTest do
 
     socket = LiveReverse.detach(socket, Search)
     assert mount(socket, :default)
+  end
+
+  test "build_params" do
+    assert Search.build_params(:default, "x") == %{"search" => "x"}
+
+    assert Search.build_params([search_param: "q", drop_params_on_change: ["page"]], nil) ==
+             %{"q" => nil, "page" => nil}
   end
 
   test "search?" do
