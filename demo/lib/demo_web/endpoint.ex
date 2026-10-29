@@ -18,6 +18,12 @@ defmodule DemoWeb.Endpoint do
     from: {:phoenix_live_view, "priv/static"},
     only: ~w(phoenix_live_view.esm.js)
 
+  if code_reloading? do
+    socket "/phoenix/live_reload/socket", Phoenix.LiveReloader.Socket
+    plug Phoenix.LiveReloader
+    plug Phoenix.CodeReloader
+  end
+
   plug Plug.Parsers, parsers: [:urlencoded], pass: ["*/*"]
   plug Plug.Session, @session_options
   plug DemoWeb.Router

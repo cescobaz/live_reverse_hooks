@@ -13,3 +13,5 @@ config :demo, DemoWeb.Endpoint,
 config :phoenix, :json_library, Jason
 
 config :logger, level: :info
+
+if config_env() == :dev, do: import_config("dev.exs")
